@@ -1,8 +1,12 @@
 _output
 .idea
+.vscode
 .DS_Store
 gopath
 dockerbuild
 
 *.out
 logs
+bin
+bin/controller-gen
+bin/kustomize

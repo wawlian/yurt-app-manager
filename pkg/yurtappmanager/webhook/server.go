@@ -1,6 +1,5 @@
 /*
-Copyright 2020 The OpenYurt Authors.
-Copyright 2020 The Kruise Authors.
+Copyright 2022 The OpenYurt Authors.
 
 Licensed under the Apache License, Version 2.0 (the "License");
 you may not use this file except in compliance with the License.
@@ -18,72 +17,31 @@ limitations under the License.
 package webhook
 
 import (
-	"fmt"
-	"time"
+	"github.com/pkg/errors"
+	ctrl "sigs.k8s.io/controller-runtime"
 
-	"k8s.io/klog"
-	"k8s.io/kubernetes/pkg/capabilities"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/manager"
-	"sigs.k8s.io/controller-runtime/pkg/webhook"
-
-	webhookutil "github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/util"
-	webhookcontroller "github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/util/controller"
-	"github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/util/health"
+	"github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/nodepool"
+	"github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/yurtappdaemon"
+	"github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/yurtappset"
+	"github.com/openyurtio/yurt-app-manager/pkg/yurtappmanager/webhook/yurtingress"
 )
 
-var (
-	// HandlerMap contains all admission webhook handlers.
-	HandlerMap = map[string]webhookutil.Handler{}
-
-	Checker = health.Checker
-)
-
-func init() {
-	capabilities.Initialize(capabilities.Capabilities{
-		AllowPrivileged: true,
-		PrivilegedSources: capabilities.PrivilegedSources{
-			HostNetworkSources: []string{},
-			HostPIDSources:     []string{},
-			HostIPCSources:     []string{},
-		},
-	})
-}
-
-func addHandlers(m map[string]webhookutil.Handler) {
-	for path, handler := range m {
-		if len(path) == 0 {
-			klog.Warningf("Skip handler with empty path.")
-			continue
-		}
-		if path[0] != '/' {
-			path = "/" + path
-		}
-		_, found := HandlerMap[path]
-		if found {
-			klog.V(1).Infof("conflicting webhook builder path %v in handler map", path)
-		}
-		HandlerMap[path] = handler
-	}
-}
-
-func SetupWithManager(mgr manager.Manager) error {
-	server := mgr.GetWebhookServer()
-	server.Host = "0.0.0.0"
-	server.Port = webhookutil.GetPort()
-	server.CertDir = webhookutil.GetCertDir()
-
-	// register admission handlers
-	for path, handler := range HandlerMap {
-		handler.SetOptions(webhookutil.Options{
-			Client: mgr.GetClient(),
-		})
-		server.Register(path, &webhook.Admission{Handler: handler})
-		klog.V(3).Infof("Registered webhook handler %s", path)
+func SetupWebhooks(mgr ctrl.Manager) error {
+	if err := (&nodepool.NodePoolHandler{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
+		return errors.Wrapf(err, "unable to create webhook for NodePool")
 	}
 
-	// register health handler
-	server.Register("/healthz", &health.Handler{})
+	if err := (&yurtappdaemon.YurtAppDaemonHandler{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
+		return errors.Wrapf(err, "unable to create webhook for YurtAppDaemon")
+	}
+
+	if err := (&yurtappset.YurtAppSetHandler{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
+		return errors.Wrapf(err, "unable to create webhook for YurtAppSet")
+	}
+
+	if err := (&yurtingress.YurtIngressHandler{Client: mgr.GetClient()}).SetupWebhookWithManager(mgr); err != nil {
+		return errors.Wrapf(err, "unable to create webhook for YurtIngress")
+	}
 
 	return nil
 }
@@ -91,30 +49,3 @@ func SetupWithManager(mgr manager.Manager) error {
 // +kubebuilder:rbac:groups=core,resources=secrets,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=mutatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
 // +kubebuilder:rbac:groups=admissionregistration.k8s.io,resources=validatingwebhookconfigurations,verbs=get;list;watch;create;update;patch;delete
-
-func Initialize(mgr manager.Manager, stopCh <-chan struct{}) error {
-	cli, err := client.NewDelegatingClient(client.NewDelegatingClientInput{
-		CacheReader: mgr.GetAPIReader(),
-		Client:      mgr.GetClient(),
-	})
-	if err != nil {
-		return err
-	}
-
-	c, err := webhookcontroller.New(cli, HandlerMap)
-	if err != nil {
-		return err
-	}
-	go func() {
-		c.Start(stopCh)
-	}()
-
-	timer := time.NewTimer(time.Second * 5)
-	defer timer.Stop()
-	select {
-	case <-webhookcontroller.Inited():
-		return nil
-	case <-timer.C:
-		return fmt.Errorf("failed to start webhook controller for waiting more than 5s")
-	}
-}

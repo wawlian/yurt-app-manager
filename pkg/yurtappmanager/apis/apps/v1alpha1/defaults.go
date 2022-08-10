@@ -22,6 +22,26 @@ import (
 	utilpointer "k8s.io/utils/pointer"
 )
 
+const (
+	defaultIngressControllerImage     string = "k8s.gcr.io/ingress-nginx/controller:v0.48.1"
+	defaultIngressWebhookCertGenImage string = "docker.io/jettech/kube-webhook-certgen:v1.5.1"
+)
+
+// SetDefaultsYurtIngress set default values for YurtIngress.
+func SetDefaultsYurtIngress(obj *YurtIngress) {
+
+	if obj.Spec.IngressControllerImage == "" {
+		obj.Spec.IngressControllerImage = defaultIngressControllerImage
+	}
+	if obj.Spec.IngressWebhookCertGenImage == "" {
+		obj.Spec.IngressWebhookCertGenImage = defaultIngressWebhookCertGenImage
+	}
+	if obj.Spec.Replicas == 0 {
+		obj.Spec.Replicas = 1
+	}
+
+}
+
 // SetDefaultsYurtAppDaemon set default values for YurtAppDaemon.
 func SetDefaultsYurtAppDaemon(obj *YurtAppDaemon) {
 
@@ -45,8 +65,8 @@ func SetDefaultsYurtAppDaemon(obj *YurtAppDaemon) {
 
 }
 
-// SetDefaults_UnitedDeployment set default values for UnitedDeployment.
-func SetDefaultsUnitedDeployment(obj *UnitedDeployment) {
+// SetDefaults_YurtAppSet set default values for YurtAppSet.
+func SetDefaultsYurtAppSet(obj *YurtAppSet) {
 
 	if obj.Spec.RevisionHistoryLimit == nil {
 		obj.Spec.RevisionHistoryLimit = utilpointer.Int32Ptr(10)
@@ -136,7 +156,7 @@ func SetDefaultPodSpec(in *corev1.PodSpec) {
 		v1.SetDefaults_Container(a)
 		for j := range a.Ports {
 			b := &a.Ports[j]
-			v1.SetDefaults_ContainerPort(b)
+			SetDefaults_ContainerPort(b)
 		}
 		for j := range a.Env {
 			b := &a.Env[j]
@@ -182,7 +202,7 @@ func SetDefaultPodSpec(in *corev1.PodSpec) {
 		v1.SetDefaults_Container(a)
 		for j := range a.Ports {
 			b := &a.Ports[j]
-			v1.SetDefaults_ContainerPort(b)
+			SetDefaults_ContainerPort(b)
 		}
 		for j := range a.Env {
 			b := &a.Env[j]
@@ -218,5 +238,12 @@ func SetDefaultPodSpec(in *corev1.PodSpec) {
 				}
 			}
 		}
+	}
+}
+
+// TODO fix copy from https://github.com/contiv/client-go/blob/v2.0.0-alpha.1/pkg/api/v1/defaults.go#L104
+func SetDefaults_ContainerPort(obj *corev1.ContainerPort) {
+	if obj.Protocol == "" {
+		obj.Protocol = corev1.ProtocolTCP
 	}
 }

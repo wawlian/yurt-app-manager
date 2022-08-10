@@ -12,7 +12,28 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-.PHONY: clean all release build
+CRD_OPTIONS ?= "crd:crdVersions=v1"
+TARGET_PLATFORMS ?= linux/arm64
+IMAGE_REPO ?= openyurt
+IMAGE_TAG ?= $(shell git describe --abbrev=0 --tags)
+GIT_VERSION = $(shell git describe --abbrev=0 --tags)
+GIT_COMMIT = $(shell git rev-parse --short HEAD)
+
+DOCKER_BUILD_ARGS = --build-arg GIT_VERSION=${GIT_VERSION}
+
+ifeq (${REGION}, cn)
+DOCKER_BUILD_ARGS += --build-arg GOPROXY=https://goproxy.cn --build-arg MIRROR_REPO=mirrors.aliyun.com
+endif
+
+ifneq (${http_proxy},)
+DOCKER_BUILD_ARGS += --build-arg http_proxy='${http_proxy}'
+endif
+
+ifneq (${https_proxy},)
+DOCKER_BUILD_ARGS += --build-arg https_proxy='${https_proxy}'
+endif
+
+.PHONY: clean all build
 
 all: test build
 
@@ -32,57 +53,46 @@ fmt:
 vet:
 	go vet ./pkg/... ./cmd/...
 
-# Build binaries and docker images.  
-# NOTE: this rule can take time, as we build binaries inside containers
-#
-# ARGS:
-#   REPO: image repo.
-#   TAG:  image tag 
-#   REGION: in which region this rule is executed, if in mainland China,
-#   	set it as cn.
-#
-# Examples:
-#   # compile yurt-app-manager
-#   make release REGION=cn REPO= TAG=
-#   or
-#   make release 
-release:
-	bash hack/make-rules/release-images.sh
+docker-build:
+	docker buildx build --no-cache --load ${DOCKER_BUILD_ARGS} --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/Dockerfile . -t ${IMAGE_REPO}/yurt-app-manager:${IMAGE_TAG}
 
-# Push docker images.  
-#
-# ARGS:
-#   REPO: image repo.
-#   TAG:  image tag 
-#   REGION: in which region this rule is executed, if in mainland China,
-#   	set it as cn.
-#
-# Examples:
-#   # compile yurt-app-manager
-#   make push REGION=cn REPO= TAG=
-#   or
-#   make push 
-
-push: 
-	bash hack/make-rules/push-images.sh
+docker-push:
+	docker buildx rm container-builder || true
+	docker buildx create --use --name=yurt-app-manager-container-builder
+	# enable qemu for arm64 build
+	# https://github.com/docker/buildx/issues/464#issuecomment-741507760
+	docker run --privileged --rm tonistiigi/binfmt --uninstall qemu-aarch64
+	docker run --rm --privileged tonistiigi/binfmt --install all
+	docker buildx build --no-cache --push ${DOCKER_BUILD_ARGS} --platform ${TARGET_PLATFORMS} -f hack/dockerfiles/Dockerfile . -t ${IMAGE_REPO}/yurt-app-manager:${IMAGE_TAG}
 
 clean: 
 	-rm -Rf _output
-	-rm -Rf dockerbuild
 
-generate: controller-gen generate-manifests generate-goclient
+# verify will verify the code.
+verify: verify-mod verify-license
+
+# verify-license will check if license has been added to files. 
+verify-license:
+	hack/make-rules/check_license.sh
+
+# verify-mod will check if go.mod has beed tidied.
+verify-mod:
+	hack/make-rules/verify_mod.sh
+
+generate: controller-gen manifests generate-goclient
 
 # Generate manifests, e.g., CRD, RBAC etc.
-generate-manifests: controller-gen
-	$(CONTROLLER_GEN) crd:trivialVersions=true rbac:roleName=manager-role webhook paths="./pkg/yurtappmanager/..." output:crd:artifacts:config=config/yurt-app-manager/crd/bases  output:rbac:artifacts:config=config/yurt-app-manager/rbac output:webhook:artifacts:config=config/yurt-app-manager/webhook
+manifests: controller-gen
+	$(CONTROLLER_GEN) $(CRD_OPTIONS) rbac:roleName=manager-role webhook paths="./..." paths="./pkg/yurtappmanager/..." output:crd:artifacts:config=config/yurt-app-manager/crd/bases  output:rbac:artifacts:config=config/yurt-app-manager/rbac output:webhook:artifacts:config=config/yurt-app-manager/webhook
 
 # Generate go codes.
 generate-goclient: controller-gen
 	hack/make-rules/generate_client.sh
 	$(CONTROLLER_GEN) object:headerFile="./pkg/yurtappmanager/hack/boilerplate.go.txt" paths="./pkg/yurtappmanager/apis/..."
 
-
-# generate deploy yaml.  
+gen-all-in-one:
+	helm template --include-crds yurt-app-manager charts/yurt-app-manager > config/setup/all_in_one.yaml
+# generate deploy yaml.
 #
 # ARGS:
 #   REPO: image repo.
@@ -99,21 +109,39 @@ generate-goclient: controller-gen
 generate-deploy-yaml: 
 	hack/make-rules/genyaml.sh
 
-# find or download controller-gen
-# download controller-gen if necessary
-controller-gen:
-ifeq (, $(shell which controller-gen-openyurt))
-	@{ \
-	set -e ;\
-	CONTROLLER_GEN_TMP_DIR=$$(mktemp -d) ;\
-	cd $$CONTROLLER_GEN_TMP_DIR ;\
-	go mod init tmp ;\
-	echo "replace sigs.k8s.io/controller-tools => github.com/openkruise/controller-tools v0.2.9-kruise" >> go.mod ;\
-	go get sigs.k8s.io/controller-tools/cmd/controller-gen@v0.2.9 ;\
-	rm -rf $$CONTROLLER_GEN_TMP_DIR ;\
-	mv $(GOPATH)/bin/controller-gen $(GOPATH)/bin/controller-gen-openyurt ;\
-	}
-CONTROLLER_GEN=$(GOPATH)/bin/controller-gen-openyurt
+CONTROLLER_GEN = $(shell pwd)/bin/controller-gen
+controller-gen: ## Download controller-gen locally if necessary.
+ifeq ("$(shell $(CONTROLLER_GEN) --version 2> /dev/null)", "Version: v0.7.0")
 else
-CONTROLLER_GEN=$(shell which controller-gen-openyurt)
+	rm -rf $(CONTROLLER_GEN)
+	$(call go-get-tool,$(CONTROLLER_GEN),sigs.k8s.io/controller-tools/cmd/controller-gen@v0.7.0)
 endif
+
+KUSTOMIZE = $(shell pwd)/bin/kustomize
+kustomize: ## Download kustomize locally if necessary.
+	$(call go-get-tool,$(KUSTOMIZE),sigs.k8s.io/kustomize/kustomize/v3@v3.8.7)
+
+GOLANGCI_LINT = $(shell pwd)/bin/golangci-lint
+golangci-lint: ## Download golangci-lint locally if necessary.
+	$(call go-get-tool,$(GOLANGCI_LINT),github.com/golangci/golangci-lint/cmd/golangci-lint@v1.42.1)
+
+lint: golangci-lint ## Run go lint against code.
+	$(GOLANGCI_LINT) run -v
+
+GINKGO = $(shell pwd)/bin/ginkgo
+ginkgo: ## Download ginkgo locally if necessary.
+	$(call go-get-tool,$(GINKGO),github.com/onsi/ginkgo/ginkgo@v1.16.4)
+
+# go-get-tool will 'go get' any package $2 and install it to $1.
+PROJECT_DIR := $(shell dirname $(abspath $(lastword $(MAKEFILE_LIST))))
+define go-get-tool
+@[ -f $(1) ] || { \
+set -e ;\
+TMP_DIR=$$(mktemp -d) ;\
+cd $$TMP_DIR ;\
+go mod init tmp ;\
+echo "Downloading $(2)" ;\
+GOBIN=$(PROJECT_DIR)/bin go get $(2) ;\
+rm -rf $$TMP_DIR ;\
+}
+endef

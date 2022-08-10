@@ -164,21 +164,26 @@ func (r *ReconcileYurtAppDaemon) Reconcile(_ context.Context, request reconcile.
 		return reconcile.Result{}, err
 	}
 
+	if control == nil {
+		r.recorder.Event(instance.DeepCopy(), corev1.EventTypeWarning, fmt.Sprintf("YurtAppDaemon[%s/%s] Fail to get control", instance.Namespace, instance.Name), fmt.Sprintf("fail to find control"))
+		return reconcile.Result{}, fmt.Errorf("fail to find control")
+	}
+
 	currentNPToWorkload, err := r.getNodePoolToWorkLoad(instance, control)
 	if err != nil {
 		klog.Errorf("YurtAppDaemon[%s/%s] Fail to get nodePoolWorkload, error: %s", instance.Namespace, instance.Name, err)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, err
 	}
 
 	allNameToNodePools, err := r.getNameToNodePools(instance)
 	if err != nil {
 		klog.Errorf("YurtAppDaemon[%s/%s] Fail to get nameToNodePools, error: %s", instance.Namespace, instance.Name, err)
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, err
 	}
 
 	newStatus, err := r.manageWorkloads(instance, currentNPToWorkload, allNameToNodePools, expectedRevision.Name, templateType)
 	if err != nil {
-		return reconcile.Result{}, nil
+		return reconcile.Result{}, err
 	}
 
 	return r.updateStatus(instance, newStatus, oldStatus, currentRevision, collisionCount, templateType)
@@ -253,7 +258,7 @@ func (r *ReconcileYurtAppDaemon) manageWorkloads(instance *unitv1alpha1.YurtAppD
 	newStatus = instance.Status.DeepCopy()
 
 	nps := make([]string, 0, len(allNameToNodePools))
-	for np, _ := range allNameToNodePools {
+	for np := range allNameToNodePools {
 		nps = append(nps, np)
 	}
 	newStatus.NodePools = nps
@@ -357,7 +362,9 @@ func (r *ReconcileYurtAppDaemon) classifyWorkloads(instance *unitv1alpha1.YurtAp
 				match = false
 			}
 			// judge workload whether toleration all taints
-			match = IsTolerationsAllTaints(load.GetToleration(), np.Spec.Taints)
+			if !IsTolerationsAllTaints(load.GetToleration(), np.Spec.Taints) {
+				match = false
+			}
 
 			// judge revision
 			if load.GetRevision() != expectedRevision {
@@ -376,7 +383,7 @@ func (r *ReconcileYurtAppDaemon) classifyWorkloads(instance *unitv1alpha1.YurtAp
 		}
 	}
 
-	for vnp, _ := range allNameToNodePools {
+	for vnp := range allNameToNodePools {
 		if _, ok := currentNodepoolToWorkload[vnp]; !ok {
 			needCreate = append(needCreate, vnp)
 			klog.V(4).Infof("YurtAppDaemon[%s/%s] need create new workload by nodepool %s", instance.GetNamespace(),

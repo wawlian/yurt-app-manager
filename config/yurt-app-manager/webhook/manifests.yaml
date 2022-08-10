@@ -1,13 +1,14 @@
 
 ---
-apiVersion: admissionregistration.k8s.io/v1beta1
+apiVersion: admissionregistration.k8s.io/v1
 kind: MutatingWebhookConfiguration
 metadata:
   creationTimestamp: null
   name: mutating-webhook-configuration
 webhooks:
-- clientConfig:
-    caBundle: Cg==
+- admissionReviewVersions:
+  - v1
+  clientConfig:
     service:
       name: webhook-service
       namespace: system
@@ -24,26 +25,10 @@ webhooks:
     - UPDATE
     resources:
     - nodepools
-- clientConfig:
-    caBundle: Cg==
-    service:
-      name: webhook-service
-      namespace: system
-      path: /mutate-apps-openyurt-io-v1alpha1-uniteddeployment
-  failurePolicy: Fail
-  name: muniteddeployment.kb.io
-  rules:
-  - apiGroups:
-    - apps.openyurt.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - uniteddeployments
-- clientConfig:
-    caBundle: Cg==
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
     service:
       name: webhook-service
       namespace: system
@@ -60,16 +45,58 @@ webhooks:
     - UPDATE
     resources:
     - yurtappdaemons
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-apps-openyurt-io-v1alpha1-yurtappset
+  failurePolicy: Fail
+  name: myurtappset.kb.io
+  rules:
+  - apiGroups:
+    - apps.openyurt.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - yurtappsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /mutate-apps-openyurt-io-v1alpha1-yurtingress
+  failurePolicy: Fail
+  name: myurtingress.kb.io
+  rules:
+  - apiGroups:
+    - apps.openyurt.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - yurtingresses
+  sideEffects: None
 
 ---
-apiVersion: admissionregistration.k8s.io/v1beta1
+apiVersion: admissionregistration.k8s.io/v1
 kind: ValidatingWebhookConfiguration
 metadata:
   creationTimestamp: null
   name: validating-webhook-configuration
 webhooks:
-- clientConfig:
-    caBundle: Cg==
+- admissionReviewVersions:
+  - v1
+  clientConfig:
     service:
       name: webhook-service
       namespace: system
@@ -87,26 +114,10 @@ webhooks:
     - DELETE
     resources:
     - nodepools
-- clientConfig:
-    caBundle: Cg==
-    service:
-      name: webhook-service
-      namespace: system
-      path: /validate-apps-openyurt-io-v1alpha1-uniteddeployment
-  failurePolicy: Fail
-  name: vuniteddeployment.kb.io
-  rules:
-  - apiGroups:
-    - apps.openyurt.io
-    apiVersions:
-    - v1alpha1
-    operations:
-    - CREATE
-    - UPDATE
-    resources:
-    - uniteddeployments
-- clientConfig:
-    caBundle: Cg==
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
     service:
       name: webhook-service
       namespace: system
@@ -123,8 +134,30 @@ webhooks:
     - UPDATE
     resources:
     - yurtappdaemons
-- clientConfig:
-    caBundle: Cg==
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
+    service:
+      name: webhook-service
+      namespace: system
+      path: /validate-apps-openyurt-io-v1alpha1-yurtappset
+  failurePolicy: Fail
+  name: vyurtappset.kb.io
+  rules:
+  - apiGroups:
+    - apps.openyurt.io
+    apiVersions:
+    - v1alpha1
+    operations:
+    - CREATE
+    - UPDATE
+    resources:
+    - yurtappsets
+  sideEffects: None
+- admissionReviewVersions:
+  - v1
+  clientConfig:
     service:
       name: webhook-service
       namespace: system
@@ -142,3 +175,4 @@ webhooks:
     - DELETE
     resources:
     - yurtingresses
+  sideEffects: None

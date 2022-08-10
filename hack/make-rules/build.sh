@@ -1,3 +1,5 @@
+#!/usr/bin/env bash
+
 # Copyright 2020 The OpenYurt Authors.
 # 
 # Licensed under the Apache License, Version 2.0 (the "License");
@@ -12,11 +14,10 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-#!/usr/bin/env bash
-
 set -x
 
 YURT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd -P)"
-source "${YURT_ROOT}/hack/lib/init.sh" 
+source "${YURT_ROOT}/hack/lib/init.sh"
+source "${YURT_ROOT}/hack/lib/build.sh"
 
 build_binary "$@"
